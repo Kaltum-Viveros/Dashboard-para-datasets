@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Dashboard diagnóstico</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body{font-family:system-ui,Segoe UI,Arial;max-width:1100px;margin:24px auto;padding:0 12px}
+    h1{margin-bottom:4px} small{color:#666}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:12px 0}
+    canvas{background:#fff;border:1px solid #eee;padding:8px}
+    #kpis b{margin-right:14px}
+    /* Panel de distribución: altura fija para no crecer a lo vertical */
+    .panel-dist { height: 260px; overflow: hidden; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Dashboard diagnóstico</h1>
+  <small>Consumiendo la API Django en vivo</small>
+  <p id="kpis">Cargando…</p>
+
+  <div class="row">
+    <canvas id="nulls" height="180"></canvas>
+    <canvas id="card" height="180"></canvas>
+  </div>
+
+  <div class="row">
+    <canvas id="types" height="180"></canvas>
+    <canvas id="outliers" height="180"></canvas>
+  </div>
+
+  <div style="margin:18px 0;">
+    <label for="colSel"><b>Distribución por columna:</b></label>
+    <select id="colSel"></select>
+    <div class="panel-dist">
+      <canvas id="dist" width="900" height="240"></canvas>
+    </div>
+  </div>
+
+  <div>
+    <h3>Correlación (heatmap)</h3>
+    <canvas id="corr" width="900" height="420"></canvas>
+  </div>
+
+<script>
+  const API_BASE = "http://localhost:8000/api";
+
+  async function j(url){ const r = await fetch(url); if(!r.ok) throw new Error(url); return r.json(); }
+
+  async function loadSummary(){
+    const s = await j(`${API_BASE}/summary/`);
+    document.getElementById('kpis').innerHTML =
+      `<b>Filas:</b> ${s.rows.toLocaleString()} &nbsp; ` +
+      `<b>Columnas:</b> ${s.cols} &nbsp; ` +
+      `<b>% Nulos (celdas):</b> ${s.null_pct}% &nbsp; ` +
+      `<b>Duplicados:</b> ${s.dup_rows}`;
+  }
+
+  function bar(canvasId, labels, data, label){
+    const ctx = document.getElementById(canvasId).getContext('2d');
+    return new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ label, data }] },
+      options: {
+        responsive: true, maintainAspectRatio:false,
+        scales: { x: { ticks: { autoSkip:false, maxRotation:90, minRotation:45 } } }
+      }
+    });
+  }
+
+  async function drawNulls(){
+    const data = await j(`${API_BASE}/nulls-per-column/`);
+    const top = data.slice(0, 30);
+    bar('nulls', top.map(d=>d.column), top.map(d=>d.nulls), 'Nulos');
+  }
+
+  async function drawCardinality(){
+    const data = await j(`${API_BASE}/cardinality/`);
+    const top = data.slice(0, 30);
+    bar('card', top.map(d=>d.column), top.map(d=>d.unique), 'Cardinalidad');
+  }
+
+  async function drawTypes(){
+    const data = await j(`${API_BASE}/types/`);
+    bar('types', data.map(d=>d.dtype), data.map(d=>d.columns), 'Columnas por tipo');
+  }
+
+  async function drawOutliers(){
+    const data = await j(`${API_BASE}/outliers/`);
+    const top = data.slice(0,30);
+    bar('outliers', top.map(d=>d.column), top.map(d=>d.outliers), 'Outliers (IQR)');
+  }
+
+  let distChart = null;
+
+  function toNums(a){ return (a || []).map(v => Number(v) || 0); }
+  function yOpts(maxVal){
+    const m = Math.max(1, Math.ceil(maxVal || 1));
+    return {
+      beginAtZero: true,
+      suggestedMax: m,
+      ticks: { precision: 0 }
+    };
+  }
+
+  async function setupDistribution(){
+    // Llenar el <select> una sola vez
+    const card = await j(`${API_BASE}/cardinality/`);
+    const sel = document.getElementById('colSel');
+    if (sel.options.length === 0) {
+      card.forEach(it=>{
+        const opt = document.createElement('option');
+        opt.value = it.column; opt.textContent = it.column;
+        sel.appendChild(opt);
+      });
+    }
+
+    async function render(){
+      const col = sel.value;
+      const data = await j(`${API_BASE}/distribution/?column=${encodeURIComponent(col)}&bins=20&top=50`);
+
+      const canvas = document.getElementById('dist');
+      const ctx = canvas.getContext('2d');
+
+      // destruye chart previo
+      Chart.getChart(canvas)?.destroy();
+      distChart?.destroy();
+
+      const baseOpts = {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { display: false } },
+        scales: { x: { ticks: { autoSkip:false, maxRotation:90, minRotation:45 } } }
+      };
+
+      if (data.numeric){
+        // Histograma
+        const counts = toNums(data.counts);
+        const labels = [];
+        for (let i=0; i<data.bins.length-1; i++) {
+          labels.push(`${Number(data.bins[i]).toFixed(2)}–${Number(data.bins[i+1]).toFixed(2)}`);
+        }
+        const maxVal = Math.max(...counts, 0);
+        if (maxVal === 0){
+          ctx.clearRect(0,0,canvas.width,canvas.height);
+          ctx.font = '14px system-ui, Segoe UI, Arial';
+          ctx.fillStyle = '#333';
+          ctx.fillText(`No hay frecuencias positivas para “${col}” (bins=20).`, 10, 24);
+          return;
+        }
+        // datos como {x,y}
+        const xy = labels.map((x,i)=>({ x, y: counts[i] }));
+        distChart = new Chart(ctx, {
+          type: 'bar',
+          data: { datasets: [{
+            label:`Histograma: ${col}`,
+            data: xy,
+            maxBarThickness: 28,
+            barPercentage: 0.9, categoryPercentage: 0.8,
+            backgroundColor: 'rgba(54, 162, 235, 0.55)',
+            borderColor: 'rgba(54, 162, 235, 1)',
+            borderWidth: 1
+          }]},
+          options: { ...baseOpts, scales: { ...baseOpts.scales, y: yOpts(maxVal) } }
+        });
+      } else {
+        // Categórica (top-k)
+        const counts = toNums(data.counts);
+        const maxVal = Math.max(...counts, 0);
+
+        // Caso “valores casi únicos”
+        if (data.unique_like || (counts.length && maxVal <= 1)){
+          ctx.clearRect(0,0,canvas.width,canvas.height);
+          ctx.font = '14px system-ui, Segoe UI, Arial';
+          ctx.fillStyle = '#333';
+          ctx.fillText(`“${col}” tiene valores casi únicos (no se muestra distribución).`, 10, 24);
+          return;
+        }
+        if (maxVal === 0){
+          ctx.clearRect(0,0,canvas.width,canvas.height);
+          ctx.font = '14px system-ui, Segoe UI, Arial';
+          ctx.fillStyle = '#333';
+          ctx.fillText(`No hay conteos positivos para “${col}”.`, 10, 24);
+          return;
+        }
+        // datos como {x,y}
+        const labels = data.labels || [];
+        const xy = labels.map((x,i)=>({ x, y: counts[i] }));
+        distChart = new Chart(ctx, {
+          type: 'bar',
+          data: { datasets: [{
+            label:`Top categorías: ${col}`,
+            data: xy,
+            maxBarThickness: 28,
+            barPercentage: 0.9, categoryPercentage: 0.8,
+            backgroundColor: 'rgba(75, 192, 192, 0.55)',
+            borderColor: 'rgba(75, 192, 192, 1)',
+            borderWidth: 1
+          }]},
+          options: { ...baseOpts, scales: { ...baseOpts.scales, y: yOpts(maxVal) } }
+        });
+      }
+    }
+
+    let timer = null;
+    sel.addEventListener('change', () => { clearTimeout(timer); timer = setTimeout(render, 120); });
+
+    if (sel.value) await render(); else if (sel.options.length){ sel.selectedIndex = 0; await render(); }
+  }
+
+  async function drawCorrelation(){
+    const res = await fetch(`${API_BASE}/correlation/?max=12&sample=10000`);
+    const data = await res.json();
+    const labels = data.labels || [];
+    const M = data.matrix || [];
+    const c = document.getElementById('corr');
+    const ctx = c.getContext('2d');
+
+    ctx.clearRect(0, 0, c.width, c.height);
+    if(!labels.length){
+      ctx.font = '14px system-ui, Segoe UI, Arial';
+      ctx.fillText('No hay suficientes columnas numéricas.', 10, 20);
+      return;
+    }
+
+    const marginL = 120, marginT = 20, marginR = 40, marginB = 140; // +40 para la barra de color
+    const w = c.width, h = c.height;
+    const plotW = Math.max(50, w - marginL - marginR);
+    const plotH = Math.max(50, h - marginT - marginB);
+    const n = labels.length;
+    const cellW = plotW / n;
+    const cellH = plotH / n;
+
+    function color(v){
+      const t = Math.max(-1, Math.min(1, v));
+      const r = t > 0 ? Math.floor(255*t) : 0;
+      const b = t < 0 ? Math.floor(255*(-t)) : 0;
+      const g = 255 - Math.floor(255*Math.abs(t));
+      return `rgb(${r},${g},${b})`;
+    }
+
+    // celdas
+    for(let i=0;i<n;i++){
+      for(let j=0;j<n;j++){
+        ctx.fillStyle = color(M[i][j]);
+        ctx.fillRect(marginL + j*cellW, marginT + i*cellH, Math.ceil(cellW), Math.ceil(cellH));
+      }
+    }
+
+    // Eje Y (izquierda)
+    ctx.fillStyle = '#000';
+    ctx.font = '12px system-ui, Segoe UI, Arial';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for(let i=0;i<n;i++){
+      const y = marginT + i*cellH + cellH/2;
+      ctx.fillText(labels[i], marginL - 6, y);
+    }
+
+    // Eje X (abajo) – texto inclinado 45°
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    for(let j=0;j<n;j++){
+      const x = marginL + j*cellW + cellW/2;
+      const y = marginT + plotH + 8;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(-Math.PI/4); // 45°
+      ctx.fillText(labels[j], 0, 0);
+      ctx.restore();
+    }
+
+    // Barra de color
+    const barX = marginL + plotW + 10, barY = marginT, barW = 12, barH = plotH;
+    for(let k=0;k<barH;k++){
+      const v = 1 - (k/barH)*2; // 1..-1
+      ctx.fillStyle = color(v);
+      ctx.fillRect(barX, barY + k, barW, 1);
+    }
+    ctx.strokeStyle = '#333'; ctx.strokeRect(barX, barY, barW, barH);
+    ctx.fillStyle = '#000'; ctx.font = '11px system-ui, Segoe UI, Arial'; ctx.textAlign='left';
+    ctx.fillText('+1', barX + barW + 4, barY + 8);
+    ctx.fillText('0',  barX + barW + 4, barY + barH/2);
+    ctx.fillText('-1', barX + barW + 4, barY + barH - 4);
+  }
+
+  (async function(){
+    await loadSummary();
+    await Promise.all([drawNulls(), drawCardinality(), drawTypes(), drawOutliers()]);
+    await setupDistribution();
+    await drawCorrelation();
+  })();
+</script>
+</body>
+</html>
