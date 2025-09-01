@@ -117,7 +117,7 @@ def duplicates(request):
         "total": int(len(df)),
         "sample": sample_json
     })
-
+'''
 @api_view(['GET'])
 def correlation(request):
     """
@@ -172,4 +172,4 @@ def correlation(request):
         "matrix": corr.values.tolist()
     })
 
-
+'''
