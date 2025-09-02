@@ -171,5 +171,58 @@ def correlation(request):
         "labels": list(cols),
         "matrix": corr.values.tolist()
     })
+##  NUEVOS DIAGRAMAS 
+@api_view(["GET"])
+def histograms(request):
+    """Histograma por cada columna numérica"""
+    df = get_df()
+    num_cols = df.select_dtypes(include="number").columns
+    bins = 20
+    data = {}
+    for col in num_cols:
+        counts, edges = pd.cut(df[col].dropna(), bins=bins, retbins=True, labels=False, duplicates="drop")
+        series = df[col].dropna()
+        hist, bin_edges = pd.cut(series, bins=bins, retbins=True)
+        freq = series.groupby(hist).count()
+        data[col] = {
+            "bins": [f"{bin_edges[i]:.2f}–{bin_edges[i+1]:.2f}" for i in range(len(bin_edges)-1)],
+            "freq": freq.tolist(),
+        }
+    return Response(data)
 
+
+@api_view(["GET"])
+def boxplots(request):
+    """Boxplot stats para cada columna numérica"""
+    df = get_df()
+    num_cols = df.select_dtypes(include="number").columns
+    data = {}
+    for col in num_cols:
+        series = df[col].dropna()
+        q1 = series.quantile(0.25)
+        q3 = series.quantile(0.75)
+        data[col] = {
+            "min": float(series.min()),
+            "q1": float(q1),
+            "median": float(series.median()),
+            "q3": float(q3),
+            "max": float(series.max()),
+        }
+    return Response(data)
+
+
+@api_view(["GET"])
+def topk_categories(request):
+    """Top-k categorías más frecuentes por columna categórica"""
+    k = int(request.GET.get("k", 10))
+    df = get_df()
+    cat_cols = df.select_dtypes(exclude="number").columns
+    data = {}
+    for col in cat_cols:
+        vc = df[col].astype(str).value_counts().head(k)
+        data[col] = {
+            "labels": vc.index.tolist(),
+            "counts": vc.values.tolist(),
+        }
+    return Response(data)
 
