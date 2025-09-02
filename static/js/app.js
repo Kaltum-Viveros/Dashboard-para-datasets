@@ -121,7 +121,7 @@ async function setupDistribution(){
 }
 
 // Correlación (canvas manual para rendimiento)
-async function drawCorrelation(){
+/* async function drawCorrelation(){
     const res = await fetch(`${API_BASE}/correlation/?max=12&sample=10000`);
     const data = await res.json();
     const labels = data.labels || []; const M = data.matrix || [];
@@ -149,7 +149,7 @@ async function drawCorrelation(){
     ctx.strokeStyle='#3333'; ctx.strokeRect(barX, barY, barW, barH);
     ctx.font='11px system-ui'; ctx.textAlign='left';
     ctx.fillText('+1', barX+barW+6, barY+8); ctx.fillText('0', barX+barW+6, barY+barH/2); ctx.fillText('-1', barX+barW+6, barY+barH-6);
-}
+} */
 
 // Boot
 (async function(){
@@ -157,7 +157,7 @@ async function drawCorrelation(){
     await loadSummary();
     await Promise.all([drawNulls(), drawCardinality(), drawTypes(), drawOutliers()]);
     await setupDistribution();
-    await drawCorrelation();
+    // await drawCorrelation();
     }catch(e){
     console.error(e);
     showErr('No se pudo cargar la API. Verifica que el servidor esté activo y que DATASET_PATH apunte a un CSV válido.');

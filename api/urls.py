@@ -9,5 +9,5 @@ urlpatterns = [
     path('distribution/', views.distribution),
     path('types/', views.types),               # <--
     path('duplicates/', views.duplicates),     # <--
-    path('correlation/', views.correlation),   # <--
+    ## path('correlation/', views.correlation),   # <--
 ]
