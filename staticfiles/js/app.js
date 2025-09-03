@@ -119,38 +119,6 @@ async function setupDistribution(){
     sel.addEventListener('change', ()=>render());
     sel.selectedIndex = 0; await render();
 }
-
-// Correlación (canvas manual para rendimiento)
-/* async function drawCorrelation(){
-    const res = await fetch(`${API_BASE}/correlation/?max=12&sample=10000`);
-    const data = await res.json();
-    const labels = data.labels || []; const M = data.matrix || [];
-    const c = $('#corr'), ctx = c.getContext('2d');
-
-    ctx.clearRect(0,0,c.width,c.height);
-    if(!labels.length){ ctx.font='14px system-ui'; ctx.fillText('No hay suficientes columnas numéricas.', 10, 20); return; }
-
-    const marginL=130, marginT=20, marginR=50, marginB=135;
-    const w=c.width, h=c.height, plotW=Math.max(50,w-marginL-marginR), plotH=Math.max(50,h-marginT-marginB);
-    const n=labels.length, cellW=plotW/n, cellH=plotH/n;
-
-    const color=(v)=>{ const t=Math.max(-1,Math.min(1,v)); const r=t>0?Math.floor(255*t):0, b=t<0?Math.floor(255*(-t)):0, g=255-Math.floor(255*Math.abs(t)); return `rgb(${r},${g},${b})`; };
-
-    for(let i=0;i<n;i++){ for(let j=0;j<n;j++){ ctx.fillStyle=color(M[i][j]); ctx.fillRect(marginL+j*cellW, marginT+i*cellH, Math.ceil(cellW), Math.ceil(cellH)); } }
-    ctx.fillStyle= getComputedStyle(document.documentElement).getPropertyValue('--text') || '#000';
-    ctx.font='12px system-ui'; ctx.textAlign='right'; ctx.textBaseline='middle';
-    for(let i=0;i<n;i++){ ctx.fillText(labels[i], marginL-8, marginT+i*cellH+cellH/2); }
-    ctx.textAlign='right'; ctx.textBaseline='top';
-    for(let j=0;j<n;j++){ const x=marginL+j*cellW+cellW/2; const y=marginT+plotH+8; ctx.save(); ctx.translate(x,y); ctx.rotate(-Math.PI/4); ctx.fillText(labels[j],0,0); ctx.restore(); }
-
-  // barra color
-    const barX=marginL+plotW+12, barY=marginT, barW=12, barH=plotH;
-    for(let k=0;k<barH;k++){ const v=1-(k/barH)*2; ctx.fillStyle=color(v); ctx.fillRect(barX, barY+k, barW, 1); }
-    ctx.strokeStyle='#3333'; ctx.strokeRect(barX, barY, barW, barH);
-    ctx.font='11px system-ui'; ctx.textAlign='left';
-    ctx.fillText('+1', barX+barW+6, barY+8); ctx.fillText('0', barX+barW+6, barY+barH/2); ctx.fillText('-1', barX+barW+6, barY+barH-6);
-} */
-
 // Boot
 (async function(){
     try{
@@ -163,3 +131,185 @@ async function setupDistribution(){
     showErr('No se pudo cargar la API. Verifica que el servidor esté activo y que DATASET_PATH apunte a un CSV válido.');
     }
 })();
+
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return await r.json();
+}
+
+let boxChart = null;
+
+async function initBoxplot() {
+  const sel = document.getElementById('boxColSel');
+  const canvas = document.getElementById('boxplot');
+  if (!sel || !canvas) return;
+
+  try {
+    // 1) Cargar columnas numéricas
+    const meta = await fetchJSON('/api/numeric-columns');
+    const cols = meta.columns || [];
+    sel.innerHTML = '';
+    cols.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      sel.appendChild(opt);
+    });
+
+    if (cols.length === 0) {
+      // No hay columnas numéricas
+      const ctx = canvas.getContext('2d');
+      ctx.font = '14px sans-serif';
+      ctx.fillText('No hay columnas numéricas en el dataset.', 10, 24);
+      return;
+    }
+
+    // 2) Escucha cambios y pinta
+    sel.addEventListener('change', () => drawBoxplot(sel.value, canvas));
+    // 3) Pinta la primera por defecto
+    await drawBoxplot(cols[0], canvas);
+
+  } catch (err) {
+    console.error('initBoxplot error:', err);
+  }
+}
+
+// === Reemplaza tu drawBoxplot y añade renderBoxplotCanvas ===
+
+// Dibuja un boxplot simple con Canvas 2D usando los stats del endpoint
+function renderBoxplotCanvas(canvas, stats) {
+  const ctx = canvas.getContext('2d');
+  const DPR = window.devicePixelRatio || 1;
+
+  // tamaño lógico
+  const W = canvas.clientWidth || 600;
+  const H = canvas.clientHeight || 320;
+
+  // escalar para HiDPI
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  // limpiar
+  ctx.clearRect(0, 0, W, H);
+
+  // padding y escala
+  const PAD_L = 60, PAD_R = 20, PAD_T = 20, PAD_B = 30;
+
+  // rango de valores (usa whiskers)
+  const vmin = Math.min(stats.min, stats.lower_fence ?? stats.min);
+  const vmax = Math.max(stats.max, stats.upper_fence ?? stats.max);
+  const range = vmax - vmin || 1;
+
+  // escala Y (arriba menor, abajo mayor)
+  const y = (val) => {
+    const t = (val - vmin) / range;
+    // invertido porque Y crece hacia abajo
+    return PAD_T + (1 - t) * (H - PAD_T - PAD_B);
+  };
+
+  // centro X donde dibujamos
+  const cx = (PAD_L + (W - PAD_R)) / 2;
+
+  // estilos
+  ctx.strokeStyle = '#334155';
+  ctx.fillStyle = '#94a3b8';
+  ctx.lineWidth = 2;
+
+  // --- whiskers ---
+  const yMin = y(stats.min);
+  const yMax = y(stats.max);
+  ctx.beginPath();
+  // línea vertical whiskers
+  ctx.moveTo(cx, yMin);
+  ctx.lineTo(cx, yMax);
+  ctx.stroke();
+
+  // “bigotes” horizontales
+  const whiskW = 40;
+  ctx.beginPath();
+  ctx.moveTo(cx - whiskW/2, yMin);
+  ctx.lineTo(cx + whiskW/2, yMin);
+  ctx.moveTo(cx - whiskW/2, yMax);
+  ctx.lineTo(cx + whiskW/2, yMax);
+  ctx.stroke();
+
+  // --- caja Q1–Q3 ---
+  const yQ1 = y(stats.q1);
+  const yQ3 = y(stats.q3);
+  const boxW = 120;
+  ctx.fillStyle = 'rgba(59,130,246,0.15)'; // azul suave
+  ctx.strokeStyle = '#3b82f6';
+  ctx.beginPath();
+  ctx.rect(cx - boxW/2, yQ3, boxW, (yQ1 - yQ3));
+  ctx.fill();
+  ctx.stroke();
+
+  // --- mediana ---
+  const yMed = y(stats.median);
+  ctx.strokeStyle = '#1d4ed8';
+  ctx.beginPath();
+  ctx.moveTo(cx - boxW/2, yMed);
+  ctx.lineTo(cx + boxW/2, yMed);
+  ctx.stroke();
+
+  // --- outliers ---
+  const outs = stats.outliers || [];
+  ctx.fillStyle = '#ef4444';
+  outs.forEach(v => {
+    const yy = y(v);
+    // solo marca puntos fuera de [min,max] si quieres
+    ctx.beginPath();
+    ctx.arc(cx, yy, 3, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // --- eje y ticks básicos ---
+  ctx.fillStyle = '#64748b';
+  ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+  const TICKS = 5;
+  for (let i = 0; i <= TICKS; i++) {
+    const val = vmin + (range * i) / TICKS;
+    const yy = y(val);
+    // línea guía
+    ctx.strokeStyle = 'rgba(100,116,139,0.2)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(PAD_L, yy);
+    ctx.lineTo(W - PAD_R, yy);
+    ctx.stroke();
+    // etiqueta
+    ctx.fillStyle = '#64748b';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(Number(val).toPrecision(4), PAD_L - 8, yy);
+  }
+
+  // título
+  ctx.fillStyle = '#475569';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.font = '14px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+  ctx.fillText(`Boxplot de ${stats.column}`, cx, 4);
+}
+
+async function drawBoxplot(column, canvas) {
+  try {
+    const data = await fetchJSON(`/api/boxplot?column=${encodeURIComponent(column)}`);
+    renderBoxplotCanvas(canvas, data);
+  } catch (err) {
+    console.error('drawBoxplot error:', err);
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#ef4444';
+    ctx.font = '14px sans-serif';
+    ctx.fillText(`No se pudo dibujar el boxplot: ${String(err)}`, 10, 24);
+  }
+}
+
+// Llama a initBoxplot() junto con tus otras inicializaciones
+window.addEventListener('load', () => {
+  // ... tus inits existentes ...
+  initBoxplot();
+});

@@ -196,32 +196,59 @@ def types(request):
     return Response([{"dtype": k, "columns": int(v)} for k, v in counts.items()])
 
 @api_view(['GET'])
-def duplicates(request):
+def numeric_columns(request):
     """
-    Devuelve total de duplicados, únicos y una muestra.
-    keep=False para incluir TODAS las repeticiones en la muestra.
+    Devuelve la lista de columnas numéricas disponibles para boxplot.
     """
-    import pandas as pd
-    import numpy as np
+    df = get_df()
+    cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    return Response({"columns": cols})
+
+@api_view(['GET'])
+def boxplot(request):
+    """
+    Devuelve los estadísticos para un boxplot tipo Tukey (IQR) de una columna:
+    min, q1, median, q3, max y outliers (valores fuera de [Q1-1.5*IQR, Q3+1.5*IQR]).
+    """
+    col = request.GET.get('column')
+    if not col:
+        return Response({"error": "column param required"}, status=400)
 
     df = get_df()
-    mask = df.duplicated(keep=False)
-    dup_total = int(mask.sum())
-    unique_total = int(len(df) - dup_total)
+    if col not in df.columns:
+        return Response({"error": "column not found"}, status=400)
 
-    # Muestra (hasta 10 filas)
-    sample = df[mask].head(10).copy()
+    s = df[col].dropna()
+    if s.empty or not np.issubdtype(s.dtype, np.number):
+        return Response({"error": "column is not numeric or has no data"}, status=400)
 
-    # Convertir a tipos serializables: NaN/NaT -> None
-    # (astype(object) + where es robusto para NaN y NaT)
-    sample = sample.astype(object).where(pd.notna(sample), None)
-    sample_json = sample.to_dict(orient='records')
+    s = s.astype(float)
+    q1 = float(s.quantile(0.25))
+    med = float(s.quantile(0.50))
+    q3 = float(s.quantile(0.75))
+    iqr = q3 - q1
+    lower = q1 - 1.5 * iqr
+    upper = q3 + 1.5 * iqr
+
+    # whiskers: típicamente el valor más extremo dentro de [lower, upper]
+    inside = s[(s >= lower) & (s <= upper)]
+    if inside.empty:
+        whisk_min = float(s.min())
+        whisk_max = float(s.max())
+    else:
+        whisk_min = float(inside.min())
+        whisk_max = float(inside.max())
+
+    outliers = s[(s < lower) | (s > upper)].tolist()
 
     return Response({
-        "dup_rows": dup_total,
-        "unique_rows": unique_total,
-        "total": int(len(df)),
-        "sample": sample_json
+        "column": col,
+        "min": whisk_min,
+        "q1": q1,
+        "median": med,
+        "q3": q3,
+        "max": whisk_max,
+        "outliers": outliers,
+        "lower_fence": float(lower),
+        "upper_fence": float(upper)
     })
-
-

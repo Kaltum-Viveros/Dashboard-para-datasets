@@ -6,8 +6,10 @@
   <title>Dashboard diagnóstico</title>
   <link rel="icon" href="/static/favicon.ico">
   <link rel="stylesheet" href="/static/css/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+
 </head>
+
 <body>
   <div class="container">
 
@@ -75,18 +77,19 @@
 
       <div class="card col-12">
         <div class="toolbar">
+          <h3 style="margin:0">Boxplot por columna numérica</h3>
+          <select id="boxColSel" title="Selecciona columna numérica"></select>
+        </div>
+        <div class="panel-dist"><canvas id="boxplot"></canvas></div>
+      </div>
+
+      <div class="card col-12">
+        <div class="toolbar">
           <h3 style="margin:0">Distribución por columna</h3>
           <select id="colSel" title="Selecciona columna"></select>
         </div>
         <div class="panel-dist"><canvas id="dist"></canvas></div>
       </div>
-
-      <!--
-      <div class="card col-12">
-        <h3>Correlación (heatmap)</h3>
-        <div style="height:420px"><canvas id="corr" width="1000" height="380"></canvas></div>
-      </div>
-      -->
     </div>
 
   </div>

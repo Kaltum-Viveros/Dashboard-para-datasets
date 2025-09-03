@@ -8,6 +8,10 @@ urlpatterns = [
     path('outliers/', views.outliers),
     path('distribution/', views.distribution),
     path('types/', views.types),               # <--
-    path('duplicates/', views.duplicates),     # <--
+    # Endpoints del boxplot (sin prefijo 'api/')
+    path('numeric-columns', views.numeric_columns),
+    path('numeric-columns/', views.numeric_columns),
+    path('boxplot', views.boxplot),
+    path('boxplot/', views.boxplot),
     path('', views.dashboard, name='dashboard'),
 ]
