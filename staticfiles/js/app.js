@@ -125,7 +125,7 @@ async function setupDistribution(){
     await loadSummary();
     await Promise.all([drawNulls(), drawCardinality(), drawTypes(), drawOutliers()]);
     await setupDistribution();
-    // await drawCorrelation();
+    await renderDescribeTable(); 
     }catch(e){
     console.error(e);
     showErr('No se pudo cargar la API. Verifica que el servidor esté activo y que DATASET_PATH apunte a un CSV válido.');
@@ -313,3 +313,60 @@ window.addEventListener('load', () => {
   // ... tus inits existentes ...
   initBoxplot();
 });
+
+
+// ======= Describe numérico =======
+function fmtNum(x){
+  if (x === null || x === undefined || Number.isNaN(x)) return '—';
+  if (Math.abs(x) >= 1000) return x.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return x.toLocaleString(undefined, { maximumFractionDigits: 6 });
+}
+
+async function renderDescribeTable(){
+  try{
+    const data = await j('/api/describe/');
+    const cols = ['column', ...(data.columns || [])];
+    const table = document.getElementById('descTable');
+    if (!table) return;
+
+    // THEAD
+    const thead = document.createElement('thead');
+    const trh = document.createElement('tr');
+    cols.forEach(h=>{
+      const th = document.createElement('th');
+      th.textContent =
+        h === 'column' ? 'Columna' :
+        h === 'p05'    ? '5%' :
+        h === 'p25'    ? '25%' :
+        h === 'median' ? 'Mediana' :
+        h === 'p75'    ? '75%' :
+        h === 'p95'    ? '95%' : h;
+      trh.appendChild(th);
+    });
+    thead.appendChild(trh);
+
+    // TBODY
+    const tbody = document.createElement('tbody');
+    (data.rows || []).forEach(row=>{
+      const tr = document.createElement('tr');
+      cols.forEach(k=>{
+        const td = document.createElement('td');
+        td.textContent = (k === 'column') ? row[k] : fmtNum(row[k]);
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+
+    table.innerHTML = '';
+    table.appendChild(thead);
+    table.appendChild(tbody);
+  }catch(e){
+    console.error(e);
+    showErr('No se pudo cargar la tabla de estadísticos.');
+  }
+}
+// Mantén este listener (inicia el boxplot al cargar)
+window.addEventListener('load', () => {
+  initBoxplot();
+});
+

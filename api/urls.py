@@ -13,5 +13,8 @@ urlpatterns = [
     path('numeric-columns/', views.numeric_columns),
     path('boxplot', views.boxplot),
     path('boxplot/', views.boxplot),
+    path('describe/', views.describe_numeric),   
+    path('describe', views.describe_numeric),    
+
     path('', views.dashboard, name='dashboard'),
 ]

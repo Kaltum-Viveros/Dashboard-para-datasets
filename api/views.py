@@ -252,3 +252,35 @@ def boxplot(request):
         "lower_fence": float(lower),
         "upper_fence": float(upper)
     })
+    
+@api_view(['GET'])
+def describe_numeric(request):
+    """
+    Estadísticos de columnas numéricas:
+    count, mean, std, min, 5%, 25%, 50%(median), 75%, 95%, max.
+    """
+    df = get_df()
+    num = df.select_dtypes(include=[np.number])
+    if num.empty:
+        return Response({"columns": [], "rows": []})
+
+    desc = num.describe(percentiles=[.05, .25, .5, .75, .95]).T
+    desc = desc.rename(columns={
+        'count':'count','mean':'mean','std':'std','min':'min',
+        '5%':'p05','25%':'p25','50%':'median','75%':'p75','95%':'p95','max':'max'
+    })
+    order = ['count','mean','std','min','p05','p25','median','p75','p95','max']
+    cols_present = [c for c in order if c in desc.columns]
+    desc = desc[cols_present].round(6)
+
+    rows = []
+    for col, row in desc.iterrows():
+        item = {"column": col}
+        for k in cols_present:
+            v = row[k]
+            if pd.isna(v):
+                item[k] = None
+            else:
+                item[k] = int(v) if k == 'count' else float(v)
+        rows.append(item)
+    return Response({"columns": cols_present, "rows": rows})
