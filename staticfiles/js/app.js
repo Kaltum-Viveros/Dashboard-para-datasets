@@ -195,7 +195,7 @@ function renderBoxplotCanvas(canvas, stats) {
   ctx.clearRect(0, 0, W, H);
 
   // padding y escala
-  const PAD_L = 60, PAD_R = 20, PAD_T = 20, PAD_B = 30;
+  const PAD_L = 60, PAD_R = 20, PAD_T = 60, PAD_B = 30;
 
   // rango de valores (usa whiskers)
   const vmin = Math.min(stats.min, stats.lower_fence ?? stats.min);
@@ -291,7 +291,7 @@ function renderBoxplotCanvas(canvas, stats) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   ctx.font = '14px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
-  ctx.fillText(`Boxplot de ${stats.column}`, cx, 4);
+  ctx.fillText(`Boxplot de ${stats.column}`, cx, 1);
 }
 
 async function drawBoxplot(column, canvas) {
