@@ -10,15 +10,40 @@
 </head>
 <body>
   <div class="container">
+
+    <!-- ======= HEADER + CARGA DE DATASET ======= -->
     <header>
       <div class="title">
         <h1>Dashboard diagnóstico</h1>
         <small>Consumiendo la API Django en vivo</small>
       </div>
-      <div class="pill" id="ds-pill">Dataset: <code>{{ ds_name|default:"—" }}</code></div>
+
+      <!-- Píldora con el nombre del dataset activo -->
+      <div class="pill" id="ds-pill">
+        Dataset:
+        <code>
+          {% if ds_name %}{{ ds_name }}
+          {% elif file_name %}{{ file_name }}
+          {% else %}—{% endif %}
+        </code>
+      </div>
+
+      <!-- Formulario de subida (arriba, en el header) -->
+      <form class="upload-form" method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {{ form.data_file }}
+        <button type="submit">Cargar dataset</button>
+      </form>
     </header>
 
-    <!-- KPIs -->
+    <!-- Errores del formulario (si los hay) -->
+    {% if form.errors %}
+      <div class="err" id="errBox">{{ form.errors }}</div>
+    {% else %}
+      <div class="err" id="errBox"></div>
+    {% endif %}
+
+    <!-- ======= KPIs ======= -->
     <section class="kpis" id="kpis">
       <div class="kpi"><b>Filas</b><span id="kpi-rows">—</span></div>
       <div class="kpi"><b>Columnas</b><span id="kpi-cols">—</span></div>
@@ -26,6 +51,7 @@
       <div class="kpi"><b>Duplicados</b><span id="kpi-dups">—</span></div>
     </section>
 
+    <!-- ======= GRÁFICAS ======= -->
     <div class="grid">
       <div class="card col-6">
         <h3>Nulos por columna</h3>
@@ -55,16 +81,17 @@
         <div class="panel-dist"><canvas id="dist"></canvas></div>
       </div>
 
-      <!--<div class="card col-12">
+      <!--
+      <div class="card col-12">
         <h3>Correlación (heatmap)</h3>
         <div style="height:420px"><canvas id="corr" width="1000" height="380"></canvas></div>
-      </div>-->
-
+      </div>
+      -->
     </div>
 
-    <div class="err" id="errBox"></div>
   </div>
 
+  <!-- Tu JS que consume /api/summary, /api/nulls-per-column, etc. -->
   <script src="/static/js/app.js"></script>
 </body>
 </html>

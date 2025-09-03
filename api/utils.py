@@ -1,10 +1,25 @@
-# utils.py
+# api/utils.py
 import os, os.path, pandas as pd, csv
 from dotenv import load_dotenv
 load_dotenv()
 
 # Cache controlado por ruta + mtime
 _CACHE = {"path": None, "mtime": None, "df": None}
+
+# ====== NUEVO: override en memoria para dataset subido ======
+_OVERRIDE_DF_JSON = None   # DataFrame activo (JSON orient='split')
+_OVERRIDE_DF_NAME = None   # Nombre del archivo subido (para UI)
+
+def set_df(df: pd.DataFrame, name: str | None = None) -> None:
+    """Activa un DataFrame en memoria para que get_df() lo regrese."""
+    global _override_enabled, _OVERRIDE_DF_JSON, _OVERRIDE_DF_NAME
+    _OVERRIDE_DF_JSON = df.to_json(orient='split')
+    _OVERRIDE_DF_NAME = name
+
+def get_df_name() -> str | None:
+    """Devuelve el nombre del dataset activo (si fue subido por la UI)."""
+    return _OVERRIDE_DF_NAME
+# ============================================================
 
 def _read_csv_autosep(path: str) -> pd.DataFrame:
     """
@@ -67,9 +82,20 @@ def _read_csv_autosep(path: str) -> pd.DataFrame:
 
 def get_df():
     """
-    Devuelve un DataFrame cacheado. Se invalida si cambia la ruta
-    (DATASET_PATH) o el mtime del archivo.
+    Devuelve un DataFrame.
+    Prioridad:
+    1) Si hay dataset subido (override en memoria) → úsalo.
+    2) Si no, usa DATASET_PATH (.env) con tu cache por ruta+mtime.
     """
+    # 1) Override en memoria
+    global _OVERRIDE_DF_JSON
+    if _OVERRIDE_DF_JSON is not None:
+        try:
+            return pd.read_json(_OVERRIDE_DF_JSON, orient='split')
+        except Exception:
+            _OVERRIDE_DF_JSON = None  # limpia y cae a la ruta default
+
+    # 2) Lectura por archivo configurado (tu lógica original)
     path = os.getenv("DATASET_PATH")
     if not path:
         raise RuntimeError("Falta DATASET_PATH en .env")
@@ -85,6 +111,6 @@ def get_df():
     # recarga si cambia archivo o mtime
     if _CACHE["df"] is None or _CACHE["path"] != path or _CACHE["mtime"] != mtime:
         df = _read_csv_autosep(path)
-        # ⬇️ aquí estaba el typo: usemos .update correctamente
         _CACHE.update({"path": path, "mtime": mtime, "df": df})
+
     return _CACHE["df"]

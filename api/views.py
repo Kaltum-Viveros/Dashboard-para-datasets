@@ -2,7 +2,113 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 import numpy as np
 import pandas as pd
-from .utils import get_df
+from .utils import get_df, set_df, get_df_name  # ← AÑADE set_df y get_df_name
+
+from django.shortcuts import render
+from .forms import UploadDataForm
+from io import BytesIO
+import csv
+
+SUPPORTED_EXTS = ('.csv', '.xlsx', '.xls', '.parquet', '.json')
+
+def _read_dataset_from_upload(uploaded_file) -> pd.DataFrame:
+    """
+    Lee CSV/XLSX/Parquet/JSON directo desde request.FILES (no escribe a disco).
+    """
+    name = uploaded_file.name.lower()
+    raw = uploaded_file.read()
+
+    if name.endswith('.csv'):
+        preview = raw[:5000].decode('utf-8', errors='ignore')
+        try:
+            dialect = csv.Sniffer().sniff(preview)
+            sep = dialect.delimiter
+        except Exception:
+            sep = ','
+        return pd.read_csv(BytesIO(raw), sep=sep, low_memory=False)
+
+    if name.endswith('.xlsx') or name.endswith('.xls'):
+        return pd.read_excel(BytesIO(raw))
+
+    if name.endswith('.parquet'):
+        return pd.read_parquet(BytesIO(raw))  # requiere pyarrow o fastparquet
+
+    if name.endswith('.json'):
+        try:
+            return pd.read_json(BytesIO(raw), lines=True)
+        except ValueError:
+            return pd.read_json(BytesIO(raw))
+
+    raise ValueError('Formato no soportado. Sube CSV, XLSX, Parquet o JSON.')
+
+def _compute_profile(df: pd.DataFrame):
+    profile = {}
+    profile['shape'] = {'rows': int(df.shape[0]), 'cols': int(df.shape[1])}
+    nulls = df.isna().sum().sort_values(ascending=False)
+    profile['nulls_by_col'] = nulls.to_dict()
+    profile['row_duplicates'] = int(df.duplicated().sum())
+    dtype_counts = df.dtypes.astype(str).value_counts()
+    profile['dtypes'] = dtype_counts.to_dict()
+    card = (df.nunique(dropna=False) / len(df) * 100).round(2) if len(df) > 0 else (df.nunique(dropna=False) * 0)
+    profile['cardinality_pct'] = card.to_dict()
+    return profile
+
+# Placeholder por si aún no llamas a utils.py
+def build_charts(df: pd.DataFrame):
+    # Reemplaza esto por tus gráficas reales o importa desde utils.py
+    return {
+        'top_nulls': sorted(_compute_profile(df)['nulls_by_col'].items(), key=lambda x: x[1], reverse=True)[:15]
+    }
+
+def dashboard(request):
+    """
+    Renderiza templates/index.html con barra de carga arriba.
+    Guarda el último dataset en sesión para recargas.
+    Además, activa el DF subido para que lo usen los endpoints /api/*.
+    """
+    form = UploadDataForm()
+    df = None
+    ds_name = None  # ← NUEVO
+
+    if request.method == 'POST':
+        form = UploadDataForm(request.POST, request.FILES)
+        if form.is_valid():
+            up = request.FILES['data_file']
+            if not any(up.name.lower().endswith(ext) for ext in SUPPORTED_EXTS):
+                form.add_error('data_file', 'Formato no soportado. Sube CSV, XLSX, Parquet o JSON.')
+            else:
+                try:
+                    df = _read_dataset_from_upload(up)
+                    # Persistencia en sesión (si quieres seguir usándola)
+                    request.session['df_json'] = df.to_json(orient='split')
+                    request.session['df_name'] = up.name
+                    # <<<<<<<< clave: activa override en memoria para /api/* >>>>>>>>
+                    set_df(df, name=up.name)
+                    ds_name = up.name
+                except Exception as e:
+                    form.add_error('data_file', f'Error al leer el archivo: {e}')
+
+    # Si no hubo POST o no se subió, intenta recuperar nombre desde utils
+    if ds_name is None:
+        ds_name = get_df_name() or request.session.get('df_name')
+
+    if df is None and request.session.get('df_json'):
+        try:
+            df = pd.read_json(request.session['df_json'], orient='split')
+        except Exception:
+            df = None
+
+    context = {
+        'form': form,
+        'file_name': request.session.get('df_name'),  # si lo usas en otro lugar
+        'ds_name': ds_name,                           # ← para tu pill en el HTML
+    }
+
+    if df is not None:
+        context['profile'] = _compute_profile(df)
+        context['charts'] = build_charts(df)
+
+    return render(request, 'index.html', context)
 
 @api_view(['GET'])
 def summary(request):
@@ -116,60 +222,6 @@ def duplicates(request):
         "unique_rows": unique_total,
         "total": int(len(df)),
         "sample": sample_json
-    })
-
-@api_view(['GET'])
-def correlation(request):
-    """
-    Matriz de correlación muestral para columnas numéricas.
-    Parámetros:
-    - max (int)    : máximo de columnas (por varianza). Default 12.
-    - sample (int) : cuántas filas muestrear. Default 10000.
-    """
-    import numpy as np
-    import pandas as pd
-
-    df = get_df()
-    num_cols = df.select_dtypes(include=[np.number]).columns
-    if len(num_cols) < 2:
-        return Response({"labels": [], "matrix": []})
-
-    try:
-        max_cols = max(2, int(request.GET.get('max', '12')))
-    except ValueError:
-        max_cols = 12
-    try:
-        sample_n = max(1000, int(request.GET.get('sample', '10000')))
-    except ValueError:
-        sample_n = 10000
-
-    # Quita columnas constantes (std=0) para evitar NaN
-    std = df[num_cols].std(numeric_only=True)
-    non_constant = std[std > 0].index
-    if len(non_constant) < 2:
-        return Response({"labels": [], "matrix": []})
-
-    # Top por varianza (más informativas)
-    var = df[non_constant].var().sort_values(ascending=False)
-    cols = var.head(min(max_cols, len(var))).index
-
-    # Muestra de filas para acelerar
-    df_s = df[cols]
-    if len(df_s) > sample_n:
-        df_s = df_s.sample(n=sample_n, random_state=0)
-
-    # Corr sobre float32 para ahorrar memoria
-    corr = df_s.astype('float32').corr(numeric_only=True)
-
-    # Sustituir NaN/Inf por 0.0 para JSON
-    corr = corr.replace({np.nan: 0.0, np.inf: 0.0, -np.inf: 0.0})
-
-    # Redondea (opcional) para reducir tamaño
-    corr = corr.round(3)
-
-    return Response({
-        "labels": list(cols),
-        "matrix": corr.values.tolist()
     })
 
 
