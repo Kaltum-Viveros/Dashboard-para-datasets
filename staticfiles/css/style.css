@@ -144,13 +144,14 @@ select{
 .grid .card.col-12:last-child{
     overflow:auto;
 }
-.grid .card.col-12:last-child > div{
+.grid .card.col-12:last-child > .viz {
     display:flex;
     justify-content:center;
     align-items:center;
     height:auto !important;
     min-height:480px;
 }
+
 #corr{
     width:1600px !important;
     height:640px !important;
