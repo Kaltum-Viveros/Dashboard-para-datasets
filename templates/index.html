@@ -6,7 +6,7 @@
   <title>Dashboard diagnóstico</title>
   <link rel="icon" href="/static/favicon.ico">
   <link rel="stylesheet" href="/static/css/style.css">
-  <!--<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>-->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
   <div class="container">
@@ -47,7 +47,7 @@
         <div class="row"><canvas id="outliers"></canvas></div>
       </div>
 
-      <div class="card col-6">
+      <div class="card col-12">
         <div class="toolbar">
           <h3 style="margin:0">Distribución por columna</h3>
           <select id="colSel" title="Selecciona columna"></select>
@@ -55,44 +55,15 @@
         <div class="panel-dist"><canvas id="dist"></canvas></div>
       </div>
 
-      <div id="histogramsContainer" class="card col-6">
-        <h3>Histogramas (numéricas)</h3>
-        {% for col in numeric_columns %}
-          <div><canvas id="hist-{{col}}" width="400" height="200"></canvas></div>
-        {% endfor %}
-      </div>
+      <!--<div class="card col-12">
+        <h3>Correlación (heatmap)</h3>
+        <div style="height:420px"><canvas id="corr" width="1000" height="380"></canvas></div>
+      </div>-->
 
-      <div id="boxplotsContainer" class="card col-6">
-        <h3>Boxplots (numéricas)</h3>
-        {% for col in numeric_columns %}
-          <div><canvas id="box-{{col}}" width="400" height="200"></canvas></div>
-        {% endfor %}
-      </div>
-
-      <div id="topkContainer" class="card col-6">
-        <h3>Top-K categorías (categóricas)</h3>
-        {% for col in categorical_columns %}
-          <div><canvas id="topk-{{col}}" width="400" height="200"></canvas></div>
-        {% endfor %}
-      </div>
     </div>
 
     <div class="err" id="errBox"></div>
   </div>
-
-  <!-- PlugIns para histogramas y boxplots-->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-box-and-violin-plot@4.3.3/build/index.umd.min.js"></script>
-<script>
-  // Registro explícito para Chart.js v4 con el build UMD
-  Chart.register(
-    ChartBoxPlot.BoxPlotController,
-    ChartBoxPlot.BoxPlotChart,
-    ChartBoxPlot.BoxAndWhiskers,
-    ChartBoxPlot.ViolinPlotController,
-    ChartBoxPlot.Violin
-  );
-</script>
 
   <script src="/static/js/app.js"></script>
 </body>
